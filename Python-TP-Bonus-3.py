@@ -58,7 +58,7 @@ class Heladera(threading.Thread):
         logging.info(
             f'Enchufo la heladera {self.numeroHeladera} y comienzo a llenarla')
         while True:
-            semaforoProveedor.acquire()
+
             # CONSULTO SI ES LA MAS VACIA
             if (self.numeroHeladera == HeladeraMasVacia or self.primeraCarga == False):
 
@@ -78,7 +78,6 @@ class Heladera(threading.Thread):
                             f'Se relleno la Heladera {self.numeroHeladera}')
                     semaforocargaHeladera.release()
                     time.sleep(10)
-            semaforoProveedor.release()
 
 
 class Despensa(threading.Thread):
@@ -171,17 +170,20 @@ class Bebedor(threading.Thread):
         time.sleep(3)
 
     def run(self):
-
+        semaforoProveedor.acquire()
         while self.cantMaximaBotellas > 0 or self.cantMaximaLatas > 0:
+
             if len(listaHeladeras[self.heladeraElegida].Latas) > 0 and self.cantMaximaLatas > 0:
                 self.tomarLata()
             if len(listaHeladeras[self.heladeraElegida].Botellas) > 0 and self.cantMaximaBotellas > 0:
                 self.tomarBotella()
         logging.info(
             f'Bebedor {self.numero}: Me tome todo, creo que me voy a desmayar!!!')
-
+        semaforoProveedor.release()
 
 # CLASE CONTROLADOR DE HELADERAS: CADA TANTO TIEMPO EL INSPECTOR REVISA LAS HELADERAS PARA VER SINO HAY LATAS PINCHADAS
+
+
 class Inspector(threading.Thread):
     def __init__(self):
         super().__init__()
