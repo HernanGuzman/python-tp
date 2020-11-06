@@ -12,7 +12,7 @@ cantidadMaximaBotellas = 15
 latasEnDespensa = []
 botellasEnDespensa = []
 cantHeladeras = 5
-cantProveedores = 40
+cantProveedores = 6
 listaHeladeras = []
 # SEMAFORO PARA CARGA DE HELADERA
 semaforocargaHeladera = threading.Semaphore(1)

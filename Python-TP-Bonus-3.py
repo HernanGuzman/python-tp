@@ -6,8 +6,9 @@ import time
 logging.basicConfig(
     format='%(asctime)s.%(msecs)03d [%(threadName)s] - %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
 
-cantidadMaximaLatas = 10
-cantidadMaximaBotellas = 15
+
+cantidadMaximaLatas = 5
+cantidadMaximaBotellas = 5
 # CUANDO SE ENTREGA LA MERCADERIA POR EL PROVEEDOR SE GUARDA EN LA DESPENSA
 latasEnDespensa = []
 botellasEnDespensa = []
@@ -17,6 +18,10 @@ cantBebedores = 3
 listaHeladeras = []
 # SEMAFORO PARA CARGA DE HELADERA
 semaforocargaHeladera = threading.Semaphore(1)
+semaforoProveedor = threading.Semaphore(1)
+# VARIABLE PARA SABER CUAL ES LA HELADERA MAS VACIA
+HeladeraMasVacia = 25
+HeladerasLlenadas = False
 
 
 class Lata():
@@ -37,6 +42,9 @@ class Heladera(threading.Thread):
         self.numeroHeladera = numeroHeladera
         self.Botellas = []
         self.Latas = []
+        # AGREGO LA CANTIDAD DE FALTANTES QUE TIENE LA HELADERA
+        self.Faltantes = cantidadMaximaBotellas + cantidadMaximaLatas
+        self.primeraCarga = False
 
     def agregarBotella(self):
         # AGREGO LA BOTELLA A LA HELADERA Y SACO UNA DE LA DESPENSA
@@ -47,20 +55,30 @@ class Heladera(threading.Thread):
         self.Latas.append(latasEnDespensa.pop())
 
     def run(self):
-        # TOMO EL SEMAFORO PARA QUE SOLO SE EJECUTE UN HILO A LA
-        semaforocargaHeladera.acquire()
         logging.info(
             f'Enchufo la heladera {self.numeroHeladera} y comienzo a llenarla')
-        while len(self.Botellas) < cantidadMaximaBotellas or len(self.Latas) < cantidadMaximaLatas:
-            # CONSULTO SI FALTA LLENAR BOTELLAS Y SI TENGO DISPONIBLE
-            if len(self.Botellas) < cantidadMaximaBotellas and len(botellasEnDespensa) > 0:
-                self.agregarBotella()
-            if len(self.Latas) < cantidadMaximaLatas and len(latasEnDespensa) > 0:
-                self.agregarLata()
-        # UNA VEZ ESTA LLENA LA HELADERA SUELTO EL SEMAFORO PARA QUE LO PUEDA TOMAR LA SIGUIENTE
-        logging.info(
-            f'Termine de llenar la Heladera {self.numeroHeladera} y presiono el botón de enfriado rápido')
-        semaforocargaHeladera.release()
+        while True:
+            semaforoProveedor.acquire()
+            # CONSULTO SI ES LA MAS VACIA
+            if (self.numeroHeladera == HeladeraMasVacia or self.primeraCarga == False):
+
+                # CONSULTO SI FALTA LLENAR BOTELLAS Y SI TENGO DISPONIBLE
+                if len(self.Botellas) < cantidadMaximaBotellas and len(botellasEnDespensa) > 0:
+                    self.agregarBotella()
+                if len(self.Latas) < cantidadMaximaLatas and len(latasEnDespensa) > 0:
+                    self.agregarLata()
+                # UNA VEZ ESTA LLENA LA HELADERA SUELTO EL SEMAFORO PARA QUE LO PUEDA TOMAR LA SIGUIENTE
+                if len(self.Botellas) == cantidadMaximaBotellas and len(self.Latas) == cantidadMaximaLatas:
+                    if(self.primeraCarga == False):
+                        logging.info(
+                            f'Termine de llenar la Heladera {self.numeroHeladera} y presiono el botón de enfriado rápido')
+                        self.primeraCarga = True
+                    else:
+                        logging.info(
+                            f'Se relleno la Heladera {self.numeroHeladera}')
+                    semaforocargaHeladera.release()
+                    time.sleep(10)
+            semaforoProveedor.release()
 
 
 class Despensa(threading.Thread):
@@ -74,11 +92,29 @@ class Despensa(threading.Thread):
 
     def llenarHeladera(self):
         for i in range(self.cantidadHeladeras):
+            semaforocargaHeladera.acquire()
             listaHeladeras[i].start()
+        HeladerasLlenadas = True
+
+    def rellenarHeladera(self):
+        semaforocargaHeladera.acquire()
+        cantidadFaltante = 0
+        global HeladeraMasVacia
+        masVaciaAnterior = HeladeraMasVacia
+        while HeladeraMasVacia == masVaciaAnterior:
+
+            for i in range(self.cantidadHeladeras):
+                if ((cantidadMaximaLatas + cantidadMaximaBotellas) - (len(listaHeladeras[i].Botellas) + len(listaHeladeras[i].Latas))) > cantidadFaltante:
+                    HeladeraMasVacia = i
+        logging.info(
+            f'La Heladera {HeladeraMasVacia} es la que mas faltantes tiene')
+        semaforocargaHeladera.release()
 
     def run(self):
         self.comprarHeladeras()
         self.llenarHeladera()
+        while True:
+            self.rellenarHeladera()
 
 
 class Proveedor(threading.Thread):
@@ -101,8 +137,10 @@ class Proveedor(threading.Thread):
             botellasEnDespensa.append(Botella())
 
     def run(self):
+        semaforoProveedor.acquire()
         self.decargarLatas()
         self.descargarBotellas()
+        semaforoProveedor.release()
 
 # MODIFICACION PARA BONUS
 
@@ -188,10 +226,14 @@ for i in range(cantBebedores):
 Inspector().start()
 
 while True:
-    # SIMULAR EL PINCHADO DE LATAS
-    heladeraAleatoria = random.randint(0, cantHeladeras - 1)
-    lataAleatoria = random.randint(0, cantidadMaximaLatas - 1)
-    listaHeladeras[heladeraAleatoria].Latas[lataAleatoria].estado = "Pinchada"
-    logging.info(
-        f' Se ha pinchado la lata {lataAleatoria} en la Heladera {heladeraAleatoria}!!!')
-    time.sleep(15)
+
+    # SOLO SE PUEDE PINCHAR CUANDO TODAS LAS HELADERAS ESTEN LLENAS
+    if HeladerasLlenadas == True:
+
+        # SIMULAR EL PINCHADO DE LATAS
+        heladeraAleatoria = random.randint(0, cantHeladeras - 1)
+        lataAleatoria = random.randint(0, cantidadMaximaLatas - 1)
+        listaHeladeras[heladeraAleatoria].Latas[lataAleatoria].estado = "Pinchada"
+        logging.info(
+            f' Se ha pinchado la lata {lataAleatoria} en la Heladera {heladeraAleatoria}!!!')
+        time.sleep(15)
